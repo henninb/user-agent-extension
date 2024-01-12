@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', function () {
-  document.getElementById("helloButton").addEventListener("click", function () {
+  document.getElementById("uaButton").addEventListener("click", function () {
     var userAgent = navigator.userAgent;
     console.log("User Agent:", userAgent);
     alert(userAgent);
@@ -12,8 +12,3 @@ document.addEventListener('DOMContentLoaded', function () {
     // Now you can use the userAgent string as needed
   });
 });
-
-//document.getElementById("helloButton").addEventListener("click", function () {
-//  alert("Hello!");
-//  console.log("Hello!");
-//});
