@@ -1,3 +1,10 @@
+function setUserAgent(userAgent) {
+    let headers = new Headers();
+    headers.append('User-Agent', userAgent);
+    let nav = new Navigator();
+    nav.setUserAgentOverride(headers, null);
+}
+
 document.addEventListener('DOMContentLoaded', function () {
   var originalUserAgent = navigator.userAgent;
 
