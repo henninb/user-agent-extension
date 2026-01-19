@@ -1,13 +1,49 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>UserAgent</title>
-  <script src="popup.js"></script>
+  <meta charset="UTF-8">
+  <title>User Agent</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
-
 <body>
-  <p>User Agent: <span id="userAgentDisplay"></span></p>
-  <input type="text" id="userAgentField" readonly>
-  <button id="uaButton">UA Button</button>
+  <div class="container">
+    <div class="header">
+      <div class="header-icon">UA</div>
+      <h1>User Agent</h1>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Current User Agent</div>
+      <div class="user-agent-display" id="userAgentDisplay">Loading...</div>
+    </div>
+
+    <div class="section">
+      <div class="input-group">
+        <label for="userAgentField">Custom User Agent</label>
+        <input type="text" id="userAgentField" placeholder="Enter custom user agent...">
+      </div>
+
+      <label class="checkbox-group">
+        <input type="checkbox" id="persistCheckbox">
+        <span class="checkbox-custom"></span>
+        <span class="checkbox-label">Persist across all tabs and sites</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="uaButton">Apply User Agent</button>
+      <button class="btn btn-secondary" id="resetButton">Reset</button>
+    </div>
+
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Ready</span>
+    </div>
+
+    <div class="footer">
+      v1.7.0
+    </div>
+  </div>
+  <script src="popup.js"></script>
 </body>
 </html>
