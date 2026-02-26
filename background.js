@@ -15,14 +15,13 @@ const ICONS_ACTIVE = {
 
 // Set icon to active or default state
 function setIconState(active) {
-  const icons = active ? ICONS_ACTIVE : ICONS_DEFAULT;
-  chrome.action.setIcon({ path: icons });
+  chrome.action.setIcon({ path: active ? ICONS_ACTIVE : ICONS_DEFAULT });
   console.log('[UA Extension] Icon set to:', active ? 'active' : 'default');
 }
 
-// Apply user agent override using declarativeNetRequest
-async function applyUserAgent(userAgent) {
-  console.log('[UA Extension] Applying user agent:', userAgent);
+// Apply headers using declarativeNetRequest
+async function applyHeaders(userAgent, headerName, headerValue) {
+  console.log('[UA Extension] Applying headers:', { userAgent, headerName, headerValue });
 
   try {
     // Remove existing rule first
@@ -30,19 +29,34 @@ async function applyUserAgent(userAgent) {
       removeRuleIds: [RULE_ID]
     });
 
+    // Build the request headers array
+    const requestHeaders = [];
+
     if (userAgent) {
-      // Add new rule to modify User-Agent header
+      requestHeaders.push({
+        header: 'User-Agent',
+        operation: 'set',
+        value: userAgent
+      });
+    }
+
+    if (headerName && headerValue) {
+      requestHeaders.push({
+        header: headerName,
+        operation: 'set',
+        value: headerValue
+      });
+    }
+
+    if (requestHeaders.length > 0) {
+      // Add new rule to modify headers
       await chrome.declarativeNetRequest.updateDynamicRules({
         addRules: [{
           id: RULE_ID,
           priority: 1,
           action: {
             type: 'modifyHeaders',
-            requestHeaders: [{
-              header: 'User-Agent',
-              operation: 'set',
-              value: userAgent
-            }]
+            requestHeaders: requestHeaders
           },
           condition: {
             urlFilter: '|http',
@@ -64,98 +78,97 @@ async function applyUserAgent(userAgent) {
         }]
       });
 
-      console.log('[UA Extension] Rule applied successfully');
-
-      // Verify the rule was added
-      const rules = await chrome.declarativeNetRequest.getDynamicRules();
-      console.log('[UA Extension] Current rules:', rules);
-
-      // Set active icon
+      console.log('[UA Extension] Rules applied successfully');
       setIconState(true);
+    } else {
+      setIconState(false);
     }
 
     return true;
   } catch (error) {
-    console.error('[UA Extension] Error applying rule:', error);
+    console.error('[UA Extension] Error applying rules:', error);
     throw error;
   }
 }
 
-// Clear user agent override
-async function clearUserAgent() {
-  console.log('[UA Extension] Clearing user agent');
+// Clear all header rules
+async function clearHeaders() {
+  console.log('[UA Extension] Clearing headers');
 
   try {
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds: [RULE_ID]
     });
-    console.log('[UA Extension] Rule cleared');
-
-    // Set default icon
+    console.log('[UA Extension] Rules cleared');
     setIconState(false);
-
     return true;
   } catch (error) {
-    console.error('[UA Extension] Error clearing rule:', error);
+    console.error('[UA Extension] Error clearing rules:', error);
     throw error;
   }
 }
+
+// Apply rules from storage
+async function applyFromStorage() {
+  const data = await chrome.storage.local.get(['customUserAgent', 'customHeaderName', 'customHeaderValue', 'persistEnabled']);
+  console.log('[UA Extension] Applying from storage:', data);
+
+  if (data.persistEnabled && (data.customUserAgent || data.customHeaderName)) {
+    await applyHeaders(data.customUserAgent, data.customHeaderName, data.customHeaderValue);
+  } else {
+    await clearHeaders();
+  }
+}
+
+// Listen for storage changes - this ensures rules are applied even if message fails
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local') {
+    console.log('[UA Extension] Storage changed:', changes);
+    applyFromStorage();
+  }
+});
 
 // Listen for messages from popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('[UA Extension] Received message:', message);
 
-  if (message.action === 'applyUserAgent') {
-    applyUserAgent(message.userAgent)
-      .then(() => {
-        console.log('[UA Extension] Sending success response');
-        sendResponse({ success: true });
-      })
-      .catch((error) => {
-        console.error('[UA Extension] Sending error response:', error);
-        sendResponse({ success: false, error: error.message });
-      });
-    return true; // Keep channel open for async response
+  if (message.action === 'applyHeaders') {
+    applyHeaders(message.userAgent, message.headerName, message.headerValue)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 
-  if (message.action === 'clearUserAgent') {
-    clearUserAgent()
+  if (message.action === 'applyUserAgent') {
+    applyHeaders(message.userAgent, null, null)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
+  if (message.action === 'clearHeaders' || message.action === 'clearUserAgent') {
+    clearHeaders()
       .then(() => sendResponse({ success: true }))
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
 
   if (message.action === 'getStatus') {
-    chrome.storage.local.get(['customUserAgent', 'persistEnabled'], (data) => {
-      sendResponse({
-        customUserAgent: data.customUserAgent || '',
-        persistEnabled: data.persistEnabled || false
-      });
+    chrome.storage.local.get(['customUserAgent', 'customHeaderName', 'customHeaderValue', 'persistEnabled'], (data) => {
+      sendResponse(data);
     });
     return true;
   }
 });
 
-// On startup, restore persisted user agent if enabled
+// On startup, restore persisted headers
 chrome.runtime.onStartup.addListener(() => {
   console.log('[UA Extension] Browser startup');
-  chrome.storage.local.get(['customUserAgent', 'persistEnabled'], (data) => {
-    if (data.persistEnabled && data.customUserAgent) {
-      applyUserAgent(data.customUserAgent);
-    } else {
-      setIconState(false);
-    }
-  });
+  applyFromStorage();
 });
 
-// Also check on install/update
+// On install/update, restore persisted headers
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[UA Extension] Extension installed/updated');
-  chrome.storage.local.get(['customUserAgent', 'persistEnabled'], (data) => {
-    if (data.persistEnabled && data.customUserAgent) {
-      applyUserAgent(data.customUserAgent);
-    } else {
-      setIconState(false);
-    }
-  });
+  applyFromStorage();
 });

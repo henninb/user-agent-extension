@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', function () {
   console.log('[UA Popup] Loaded');
-  console.log('[UA Popup] chrome object:', typeof chrome);
-  console.log('[UA Popup] chrome.storage:', typeof chrome !== 'undefined' ? typeof chrome.storage : 'N/A');
 
   const originalUserAgent = navigator.userAgent;
   const userAgentDisplay = document.getElementById('userAgentDisplay');
   const userAgentField = document.getElementById('userAgentField');
+  const headerNameField = document.getElementById('headerName');
+  const headerValueField = document.getElementById('headerValue');
   const persistCheckbox = document.getElementById('persistCheckbox');
   const applyButton = document.getElementById('uaButton');
   const resetButton = document.getElementById('resetButton');
@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Load saved state
-  chrome.storage.local.get(['customUserAgent', 'persistEnabled'], (data) => {
+  chrome.storage.local.get(['customUserAgent', 'customHeaderName', 'customHeaderValue', 'persistEnabled'], (data) => {
     console.log('[UA Popup] Loaded storage:', data);
     if (data.customUserAgent) {
       userAgentField.value = data.customUserAgent;
@@ -31,10 +31,16 @@ document.addEventListener('DOMContentLoaded', function () {
         userAgentDisplay.textContent = data.customUserAgent;
       }
     }
+    if (data.customHeaderName) {
+      headerNameField.value = data.customHeaderName;
+    }
+    if (data.customHeaderValue) {
+      headerValueField.value = data.customHeaderValue;
+    }
     persistCheckbox.checked = data.persistEnabled || false;
 
-    if (data.persistEnabled && data.customUserAgent) {
-      setStatus(true, 'Persisting custom UA');
+    if (data.persistEnabled && (data.customUserAgent || data.customHeaderName)) {
+      setStatus(true, 'Persisting custom headers');
     } else {
       setStatus(true, 'Ready');
     }
@@ -47,103 +53,77 @@ document.addEventListener('DOMContentLoaded', function () {
     statusText.textContent = text;
   }
 
-  // Apply custom user agent
-  applyButton.addEventListener('click', function () {
+  // Apply settings
+  applyButton.addEventListener('click', async function () {
     console.log('[UA Popup] Apply button clicked');
 
     const customUA = userAgentField.value.trim();
+    const headerName = headerNameField.value.trim();
+    const headerValue = headerValueField.value.trim();
     const persist = persistCheckbox.checked;
 
-    console.log('[UA Popup] Custom UA:', customUA);
-    console.log('[UA Popup] Persist:', persist);
-
-    if (!customUA) {
-      setStatus(false, 'Please enter a user agent');
+    if (!customUA && !headerName) {
+      setStatus(false, 'Enter a user agent or header');
       return;
     }
 
-    // Save to storage
-    chrome.storage.local.set({
+    if (headerName && !headerValue) {
+      setStatus(false, 'Header value required');
+      return;
+    }
+
+    // Save to storage - the background script listens for storage changes
+    // and will apply the rules automatically
+    await chrome.storage.local.set({
       customUserAgent: customUA,
+      customHeaderName: headerName,
+      customHeaderValue: headerValue,
       persistEnabled: persist
-    }, () => {
-      console.log('[UA Popup] Saved to storage');
-
-      if (persist) {
-        // Send to background script to apply globally
-        console.log('[UA Popup] Sending applyUserAgent message');
-        chrome.runtime.sendMessage(
-          { action: 'applyUserAgent', userAgent: customUA },
-          (response) => {
-            console.log('[UA Popup] Got response:', response);
-            if (chrome.runtime.lastError) {
-              console.error('[UA Popup] Runtime error:', chrome.runtime.lastError);
-              setStatus(false, 'Error: ' + chrome.runtime.lastError.message);
-              return;
-            }
-            if (response && response.success) {
-              userAgentDisplay.textContent = customUA;
-              setStatus(true, 'Persisting across all sites');
-            } else {
-              setStatus(false, 'Failed to apply UA');
-            }
-          }
-        );
-      } else {
-        // Just update display locally (single page only)
-        userAgentDisplay.textContent = customUA;
-        setStatus(true, 'Applied to this session');
-
-        // Clear any global rules
-        chrome.runtime.sendMessage({ action: 'clearUserAgent' });
-      }
     });
+
+    console.log('[UA Popup] Saved to storage');
+
+    if (customUA) {
+      userAgentDisplay.textContent = customUA;
+    }
+
+    if (persist) {
+      setStatus(true, 'Persisting across all sites');
+    } else {
+      setStatus(true, 'Applied to this session');
+    }
   });
 
   // Reset to original
-  resetButton.addEventListener('click', function () {
+  resetButton.addEventListener('click', async function () {
     console.log('[UA Popup] Reset button clicked');
 
     userAgentField.value = '';
+    headerNameField.value = '';
+    headerValueField.value = '';
     persistCheckbox.checked = false;
     userAgentDisplay.textContent = originalUserAgent;
 
-    // Clear storage
-    chrome.storage.local.remove(['customUserAgent', 'persistEnabled'], () => {
-      console.log('[UA Popup] Cleared storage');
+    // Clear storage - the background script will clear rules automatically
+    await chrome.storage.local.remove(['customUserAgent', 'customHeaderName', 'customHeaderValue', 'persistEnabled']);
+    console.log('[UA Popup] Cleared storage');
 
-      // Clear global rules
-      chrome.runtime.sendMessage({ action: 'clearUserAgent' }, (response) => {
-        console.log('[UA Popup] Clear response:', response);
-        if (response && response.success) {
-          setStatus(true, 'Reset to original');
-        }
-      });
-    });
+    setStatus(true, 'Reset to original');
   });
 
   // Handle checkbox change
-  persistCheckbox.addEventListener('change', function () {
+  persistCheckbox.addEventListener('change', async function () {
     console.log('[UA Popup] Checkbox changed:', persistCheckbox.checked);
 
     const persist = persistCheckbox.checked;
-    const customUA = userAgentField.value.trim();
 
-    chrome.storage.local.set({ persistEnabled: persist }, () => {
-      if (!persist && customUA) {
-        // If unchecking, clear global rules
-        chrome.runtime.sendMessage({ action: 'clearUserAgent' }, () => {
-          setStatus(true, 'Persistence disabled');
-        });
-      } else if (persist && customUA) {
-        // If checking and we have a UA, apply it
-        chrome.runtime.sendMessage(
-          { action: 'applyUserAgent', userAgent: customUA },
-          () => {
-            setStatus(true, 'Persistence enabled');
-          }
-        );
-      }
-    });
+    // Just update the persist flag - background will handle the rest
+    await chrome.storage.local.set({ persistEnabled: persist });
+
+    if (persist) {
+      setStatus(true, 'Persistence enabled');
+    } else {
+      setStatus(true, 'Persistence disabled');
+    }
   });
 });
